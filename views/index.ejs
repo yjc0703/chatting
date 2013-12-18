@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title><%= title %></title>
+	<link rel='stylesheet' href='/css/style.css' />
+	<script	src='http://code.jquery.com/jquery-1.10.2.js'></script>
+	<script	src='/socket.io/socket.io.js'></script>
+	<script>
+		$(document).ready(function(){
+			var	socket = io.connect(window.location.origin,	{'sync disconnect on unload': true});
+
+			socket.on('allUserCount', function(data){
+				$('#allUserCount').html(data);
+			});
+
+			socket.on('roomList', function(data){
+				var d = eval('('+data+')');
+
+				var r = $('#roomList').empty();
+
+				d.forEach(function(e){
+					var o = $('<option>').attr('value', e.id).html(e.name).appendTo(r);
+				});
+			});
+
+			socket.on('userList', function(data){
+				var d = eval('('+data+')');
+
+				var u = $('#userList').empty();
+
+				d.forEach(function(e){
+					var o = $('<option>').attr('value', e.id).html(e.name).appendTo(u);
+				});
+			});
+
+			// receive message
+			socket.on('message', function(data){
+				var s1 = $('<span>').html('[' + data.name + '] ');
+				var s2 = $('<span>').html(data.text);
+				$('#chat').append($('<div>').html(s1.html() + s2.html()));
+			});
+
+			socket.on('join', function(data){
+				$('#roomList').val(data);
+				join(data);
+			});
+
+			socket.on('name', function(data){
+				$('#name').val(data);
+			});
+
+			socket.on('notify', function(data){
+				$('#chat').append($('<h3>').css('width', '100%').css('text-align', 'center').html(data).appendTo('<div>'));
+			});
+
+
+
+
+			// send message
+			$('#make').on('click', function() {
+				var text = $('#room').val();
+				socket.emit('make', text);
+			});
+
+			$('#change').on('click', function(){
+				var text = $('#name').val();
+				socket.emit('change', text);
+			});
+
+			$('#roomList').on('change', function(){
+				join($(this).val());
+			});
+
+			$('#send').on('submit', function(){
+				var text = $('#text');
+				socket.emit('message', text.val());
+				text.val('');
+				text.focus();
+				return false;
+			});
+
+			function join(val) {
+				socket.emit('drop');
+				socket.emit('join', val);
+			}
+		});
+	</script>
+	<style>
+		#container {
+			width:810px;
+			position:relative;
+			margin:auto;
+			overflow:hidden;
+		}
+		#l {
+			float:left;
+			width:200px;
+			height:600px;
+			
+		}
+		#c {
+			float:left;
+			min-width:600px;
+			height:600px;
+			border:solid 1px gray;
+		}
+		#i {
+			clear:both;
+			width:100%;
+		}
+		#text {
+			width:90%;
+		}
+		#name {
+			width:50%;
+		}
+		#room {
+			width:50%;
+		}
+		#send {
+			float:right;
+		}
+		#chat {
+			width:100%;
+			height:100%;
+		}
+		#roomList {
+			width:100%;
+			height:350px;
+		}
+		#userList {
+			width:100%;
+			height:150px;
+		}
+	</style>
+</head>
+<body>
+	<div>
+		<div id='container'>
+			<h1><span id='allUserCount'></span> user join</h1>
+			<div id='c'>
+				<div id='chat'></div>
+			</div>
+			<div id='l'>
+				<div><span id='roomCount'></span> rooms</div>
+				<div>
+					<select id='roomList' multiple='flase'>
+					</select>
+				</div>
+				<input type='text' id='room' />
+				<button id='make'>make</button>
+				<div><span id='userCount'></span> users</div>
+				<div>
+					<select id='userList' multiple='flase'>
+					</select>
+				</div>
+				<input type='text' id='name' />
+				<button id='change'>change</button>
+			</div>
+			<div id='i'>
+				<form id='send'>
+					<input type='text' id='text' />
+					<input type='submit' value='send' />
+				</form>
+			</div>		
+		</div>
+	<div>
+</body>
+</html>
