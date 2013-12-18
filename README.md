@@ -1,4 +1,5 @@
 chatting
 ========
 
-nodejs, socket.io practice
+nodejs practice
+using express, socket.io
