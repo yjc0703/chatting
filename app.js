@@ -30,7 +30,6 @@ if ('development' == app.get('env')) {
 }
 
 app.get('/', routes.index);
-app.get('/users', user.list);
 
 var server = http.createServer(app);
 server.listen(app.get('port'), function(){
@@ -41,136 +40,115 @@ var io = socketio.listen(server);
 
 var userCount = 0;
 var userIdx = 0;
-var roomId = 0;
-var roomList = [];
-var userList = {};
+var roomIdx = 0;
+var rooms = {};
 
 io.sockets.on('connection', function(socket){
 
-	var addUser = function(room, socket) {
-		socket.get('name', function(err, name){
-			if(name == null) {
-				name = 'guest';
-				socket.set('name', name);
-				socket.emit('name', name);
-			}
-			userList[room].push({'id':socket.id, 'name':name});
-		});
-	};
-
-	var delUser = function (room, socket) {		
-		socket.leave(room);
-		var ua = [];
-		userList[room].forEach(function(e, i){
-			if(e.id != socket.id) ua.push(e);
-		});
-		userList[room] = ua;
-	};
-
-	var changeUser = function(room, socket, name) {
-		var idx = -1;
-		userList[room].forEach(function(e, i){
-			if(e.id == socket.id) {
-				idx = i;
-			}
-		});
-
-		if(idx >= 0) userList[room][idx].name = name;
-	};
-
-	var addRoom = function(rn) {
-		var rid = (++roomId).toString();
-		var o = {'id' : rid, 'name' : rn};
-		roomList.push(o);
-		userList[rid] = [];
-		return rid;
-	};
-
-	var delRoom = function(id) {		
-		var i = roomList.length;
-		var aa = [];
-		while(i-- > 0) {
-			if(roomList[i].id != id) aa.push(roomList[i]);
-		}
-		roomList = aa;
-	};
+	var socketId = socket.id;
+	var userId = (++userIdx).toString();
+	var name = 'guest_' + userId;
+	var roomId = "";
 
 	io.sockets.emit('allUserCount', ++userCount);
-	socket.emit('roomList', JSON.stringify(roomList));
-	var userName = 'guest_' + (++userIdx);
-	socket.set('name', userName);
-	socket.emit('name', userName);
+	socket.emit('roomList', rooms);
+	socket.emit('name', name);
 
-	socket.on('message', function(text){
-		socket.get('room', function(err, room){
-			if(room == null) {
-				return false;
-			}
-			socket.get('name', function(err, name){
-				if(name == null) {
-					return false;
-				}
-				io.sockets.in(room).emit('message', {'name' : name, 'text' : text});
-			});
-		});
+	socket.on('make', function(roomName){
+		leave();
+		roomId = makeRoom(roomName);
+		join();
 	});
 
-	socket.on('join', function(room){
-		socket.join(room);
-		socket.set('room', room);
-		addUser(room, this);
-		io.sockets.in(room).emit('userList', JSON.stringify(userList[room]));
-		socket.get('name', function(err, name){
-			io.sockets.in(room).emit('notify', '[' + name + '] join.');
-		});
+	socket.on('join', function(rid){
+		roomId = rid;
+		join();
 	});
 
-	socket.on('drop', function(){
-		socket.get('room', function(err, room){
-			if(room != null) {
-				delUser(room, socket);
-				io.sockets.in(room).emit('userList', JSON.stringify(userList[room]));
-				socket.get('name', function(err, name){
-					io.sockets.in(room).emit('notify', '[' + name + '] leave.');
-				});
-			}
-		});
+	socket.on('leave', function(){
+		leave();
 	});
 
-	socket.on('make', function(data){
-		var rid = addRoom(data);
-		io.sockets.emit('roomList', JSON.stringify(roomList));
-		socket.emit('join', rid);
+	socket.on('message', function(msg){
+		io.sockets.in(roomId).emit('message', {'name' : name, 'text' : msg});
 	});
 
-	socket.on('change', function(data){
-		var beforeName = '';
-		socket.get('name', function(err, name){
-			beforeName = name;
-		});
-		socket.set('name', data);
-		socket.get('room', function(err, room){
-			if(room != null) {
-				changeUser(room, socket, data);
-				io.sockets.in(room).emit('userList', JSON.stringify(userList[room]));
-				io.sockets.in(room).emit('notify', '[' + beforeName + '] change name to [' + data + ']');
-			}
-		});
+	socket.on('whisper', function(data){
+		var user = rooms[roomId].users[data.toId];
+		console.log('======================> toSocId : ' + user.socketId);
+
+		socket.emit('whisper', {'toName' : user.name, 'fromName' : name, 'text' : data.text});
+		io.sockets.sockets[user.socketId].emit('whisper', {'toName' : user.name, 'fromName' : name, 'text' : data.text});
+	});
+
+	socket.on('change', function(nm){
+		var room = rooms[roomId];
+		notify('[' + name + '] change name to [' + nm + ']');
+		name = nm;
+		room.users[userId].name = nm;
+		socket.emit('name', name);
+		io.sockets.in(roomId).emit('userList', room.users);
 	});
 
 	socket.on('disconnect', function() {
 		io.sockets.emit('allUserCount', --userCount);
-		socket.get('room', function(err, room){
-			if(room != null) {
-				delUser(room, socket);
-				io.sockets.in(room).emit('userList', JSON.stringify(userList[room]));
-				socket.get('name', function(err, name){
-					io.sockets.in(room).emit('bye', name);
-				});
-			}
-		});
+		leave();
 		console.log('disconnect');
 	});
+
+	function notify(message, isAll) {
+		if(isAll) {
+			io.sockets.emit('notify', '** ' + message + ' **');
+		} else {
+			io.sockets.in(roomId).emit('notify', '** ' + message + ' **');
+		}
+	};
+
+	function makeRoom(rn) {
+		var rid = (++roomIdx).toString();
+		var o = {};
+		o.id = rid;
+		o.name = rn;
+		o.users = {};
+		o.count = 0;
+		rooms[rid] = o;
+		io.sockets.emit('roomList', rooms);
+		return rid;
+	};
+
+	function removeRoom(id) {
+		delete rooms[id];
+		io.sockets.emit('roomList', rooms);
+	};
+
+	function join() {
+		socket.join(roomId);
+		var room = rooms[roomId];
+		room.users[userId] = {'userId' : userId, 'socketId' : socketId, 'name' : name}; 
+		room.count++;
+		socket.broadcast.to(roomId).emit('userList', room.users);
+		socket.emit('joined', room);
+		notify('[' + name + ']' + ' join.');
+	};
+
+	function leave() {
+		if(roomId != "") {
+			var room = rooms[roomId];
+
+			delete room.users[userId];
+			room.count--;
+
+			if(room.count > 0) {
+				socket.broadcast.to(roomId).emit('userList', room.users);
+			} else {
+				removeRoom(roomId);
+			}
+			notify('[' + name + ']' + ' leave.');
+			socket.emit('leaved');
+			socket.leave(roomId);
+			roomId = "";
+		}
+	};
 });
 
 
